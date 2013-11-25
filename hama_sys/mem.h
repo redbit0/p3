@@ -23,6 +23,7 @@ typedef struct _PTE
   ULONG ForUse2           :1;
   ULONG ForUse3           :1;
   ULONG PageBaseAddr      :20;
+  ULONG NoUse			  :32;
 } PTE, *PPTE;
 
 /* Memory-management defines */
@@ -33,13 +34,14 @@ typedef struct _PTE
 #define CR3_TO_PDBASE(v) ((v) & 0xfffff000)
 #define CR3_TO_PDPTBASE_PAE(v) ((v) & 0xfffffff0)
 
-#define PDPTE_TO_PDBASE(a) ((a) >> 12)
+//#define PDPTE_TO_PDBASE(v) ((v) & 0xfffff000)
 
 #define VA_TO_PDE(a)   (((a) & 0xffc00000) >> 22)
 #define VA_TO_PTE(a)   (((a) & 0x003ff000) >> 12)
 
 #define VA_TO_PDPTE(a)		(((a) & 0xC0000000) >> 30)
 #define VA_TO_PDE_PAE(a)	(((a) & 0x3fe00000) >> 21)
+#define VA_TO_PDE_PAE_WIN(a) (((a) & 0xffe00000) >> 21)
 #define VA_TO_PTE_PAE(a)	(((a) & 0x001ff000) >> 12)
 
 #define PHY_TO_FRAME(a) ((a) >> 12)
@@ -52,6 +54,12 @@ typedef struct _PTE
 #define LARGEFRAME_TO_PHY_PAE(a) ((a) << 21)
 
 #define PDE_TO_VALID(a)  ((ULONG32) (a) & 0x1)
+
+#define PAGE_ALIGN(a) ((a) & ~((PAGE_SIZE)-1))
+#define LARGEPAGE_ALIGN(a) ((a) & ~((LARGEPAGE_SIZE)-1))
+
+#define PAGE_OFFSET(a) ((ULONG) (a) - (ULONG) PAGE_ALIGN(a))
+#define LARGEPAGE_OFFSET(a) ((ULONG) (a) - (ULONG) LARGEPAGE_ALIGN(a))
 
 NTSTATUS MmuMapPhysicalPage(ULONG phy, PULONG pva, PPTE poriginal);
 NTSTATUS MmuUnmapPhysicalPage(ULONG va, PTE original);
@@ -69,6 +77,6 @@ BOOLEAN  MmuIsAddressWritable(ULONG cr3, ULONG va);
 NTSTATUS MmuMapPhysicalPage(ULONG phy, PULONG pva, PPTE pentryOriginal);
 NTSTATUS MmuUnmapPhysicalPage(ULONG va, PTE entryOriginal);
 VOID MmuInvalidateTLB(ULONG addr);
-NTSTATUS MmuFindUnusedPTE(PULONG pdwLogical);
+NTSTATUS MmuFindUnusedPTEUsePAE(PULONG pdwLogical);
 
 #endif	/* _MMU_H */

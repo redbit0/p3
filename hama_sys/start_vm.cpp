@@ -716,6 +716,8 @@ __declspec( naked ) VOID StartVMX( )
 				Log( "Setting PAGE_FAULT ERROR-CODE MATCH", PAGE_FAULT_IN_NONPAGED_AREA );
 				WriteVMCS( 0x00004008, PAGE_FAULT_IN_NONPAGED_AREA);
 
+				WriteVMCS( 0x00004008, 0x00000000);
+
 	//	Get the CR3-target count, MSR store/load counts, et cetera
 	//
 	//	IA32_VMX_MISC MSR (index 485H)
@@ -1407,7 +1409,7 @@ ULONG		movcrGeneralPurposeRegister;
 ULONG		movcrLMSWSourceData;
 
 PTE			pte;
-PBOOLEAN	pisLargePage;
+BOOLEAN		isLargePage;
 
 //ULONG		ErrorCode;
 
@@ -1820,11 +1822,13 @@ __declspec( naked ) VOID VMMEntryPoint( )
 		
 		Log( "Guest Linear Address", GuestLinearAddress);
 
-		MmuGetPageEntryPAE(GuestCR3, GuestLinearAddress, &pte, pisLargePage);
+		if(GuestLinearAddress != 0xFFFE0080){
 
-		PHY_TO_FRAME(pte.PageBaseAddr);
+			MmuGetPageEntryPAE(GuestCR3, GuestLinearAddress, &pte, &isLargePage);
 
-		Log("Frame", pte);
+			Log("Frame", PHY_TO_FRAME(pte.PageBaseAddr));
+
+		}
 
 		//goto Resume;
 	}
@@ -2657,26 +2661,30 @@ static NTSTATUS MmuGetPageEntryPAE(ULONG cr3, ULONG va, PPTE ppte, PBOOLEAN pisL
 	// Read PDPTE
 	addr = CR3_TO_PDPTBASE_PAE(cr3) + (VA_TO_PDPTE(va)*sizeof(PTE));
 	Log("MmuGetPageEntry() Reading phy (NOT large)", addr);
+	
 	status = MmuReadPhysicalRegion(addr, &p, sizeof(PTE));
 	if (status != STATUS_SUCCESS) {
 		Log("MmuGetPageEntry() cannot read PDPTE", addr);
 		return STATUS_UNSUCCESSFUL;
 	}
-
-	Log("MmuGetPageEntry() PDE read", p);
+	
+	Log("MmuGetPageEntry() PDPTE read", p);
 
 	if (!p.Present)
 		return STATUS_UNSUCCESSFUL;
 
 	// Read PDE
-	addr = PDPTE_TO_PDBASE(p.PageBaseAddr) + (VA_TO_PDE(va)*sizeof(PTE));
+	addr = FRAME_TO_PHY(p.PageBaseAddr) + (VA_TO_PDE_PAE(va)*sizeof(PTE));
 	Log("MmuGetPageEntry() Reading phy (NOT large)", addr);
+
 	status = MmuReadPhysicalRegion(addr, &p, sizeof(PTE));
 	if (status != STATUS_SUCCESS) {
 		Log("MmuGetPageEntry() cannot read PDE", addr);
 		return STATUS_UNSUCCESSFUL;
 	}
 
+	Log("MmuGetPageEntry() PDE read", p);
+	
 	// If it's present and it's a 2MB page, then this is a hit
 	if(p.LargePage) {
 		if (ppte) *ppte = p;
@@ -2691,7 +2699,7 @@ static NTSTATUS MmuGetPageEntryPAE(ULONG cr3, ULONG va, PPTE ppte, PBOOLEAN pisL
 		Log("MmuGetPageEntry() cannot read PTE", addr);
 		return STATUS_UNSUCCESSFUL;
 	}
-
+	
 	Log("MmuGetPageEntry() PTE read.", p);
 
 	if (!p.Present)
@@ -2706,7 +2714,7 @@ static NTSTATUS MmuGetPageEntryPAE(ULONG cr3, ULONG va, PPTE ppte, PBOOLEAN pisL
 NTSTATUS MmuReadWritePhysicalRegion(ULONG phy, PVOID buffer, ULONG size, BOOLEAN isWrite)
 {
 	NTSTATUS status=STATUS_UNSUCCESSFUL;
-	ULONG dwLogicalAddress=0;
+	ULONG dwLogicalAddress;
 	PTE entryOriginal;
 
 	// Check that the memory region to read does not cross multiple frames
@@ -2718,7 +2726,7 @@ NTSTATUS MmuReadWritePhysicalRegion(ULONG phy, PVOID buffer, ULONG size, BOOLEAN
 	status = MmuMapPhysicalPage(phy, &dwLogicalAddress, &entryOriginal);
 	if (status != STATUS_SUCCESS) return STATUS_UNSUCCESSFUL;
 
-	//  dwLogicalAddress += PAGE_OFFSET(phy);
+	dwLogicalAddress += PAGE_OFFSET(phy);
 
 	if (!isWrite) {
 	// Read memory page
@@ -2734,7 +2742,7 @@ NTSTATUS MmuReadWritePhysicalRegion(ULONG phy, PVOID buffer, ULONG size, BOOLEAN
 	memcpy((PUCHAR) dwLogicalAddress, buffer, size);
 	}
 
-	Log("[MMU] MmuReadWritePhysicalRegion() All done!", 0);
+	Log("MmuReadWritePhysicalRegion() All done!", 0);
 
 	MmuUnmapPhysicalPage(dwLogicalAddress, entryOriginal);
 
@@ -2744,12 +2752,12 @@ NTSTATUS MmuReadWritePhysicalRegion(ULONG phy, PVOID buffer, ULONG size, BOOLEAN
 NTSTATUS MmuMapPhysicalPage(ULONG phy, PULONG pva, PPTE pentryOriginal)
 {
 	NTSTATUS status;
-	ULONG dwEntryAddress, dwLogicalAddress=0;
+	ULONG dwEntryAddress, dwLogicalAddress;
 	PTE *pentry;
 
 	//Get unused PTE address in the current process
 	Log("MmuMapPhysicalPage() Searching for unused PTE...", 0);
-	status = MmuFindUnusedPTE(&dwLogicalAddress);
+	status = MmuFindUnusedPTEUsePAE(&dwLogicalAddress);
 	Log("MmuMapPhysicalPage() Unused PTE found at", dwLogicalAddress);
 	if (status != STATUS_SUCCESS) return STATUS_UNSUCCESSFUL;
 
@@ -2801,19 +2809,19 @@ static VOID MmuInvalidateTLB(ULONG addr)
   };
 }
 
-static NTSTATUS MmuFindUnusedPTE(PULONG pdwLogical)
+static NTSTATUS MmuFindUnusedPTEUsePAE(PULONG pdwLogical)
 {
   ULONG dwCurrentAddress, dwPTEAddr, dwPDEAddr, dwPDE, dwPTE;
 
   for (dwCurrentAddress=PAGE_SIZE; dwCurrentAddress < 0x80000000; dwCurrentAddress += PAGE_SIZE) {
     /* Check if memory page at logical address 'dwCurrentAddress' is free */
-    dwPDEAddr = VIRTUAL_PD_BASE + (VA_TO_PDE(dwCurrentAddress) * sizeof(PTE));
+    dwPDEAddr = VIRTUAL_PD_BASE_PAE + (VA_TO_PDE_PAE_WIN(dwCurrentAddress) * sizeof(PTE));
 
     dwPDE = *(PULONG) dwPDEAddr;
     if (!PDE_TO_VALID(dwPDE))
       continue;
 
-    dwPTEAddr = VIRTUAL_PT_BASE + (VA_TO_PTE(dwCurrentAddress) * sizeof(PTE));
+    dwPTEAddr = VIRTUAL_PT_BASE + (VA_TO_PTE_PAE(dwCurrentAddress) * sizeof(PTE));
 
     dwPTE = *(PULONG) dwPTEAddr;
     if (PDE_TO_VALID(dwPTE)) {
