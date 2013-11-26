@@ -136,7 +136,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					  HBITMAP hOldBitmap = (HBITMAP)SelectObject(hMemDC, hBitmap);
 					  BitBlt(hdc, 0, 0, 413, 502, hMemDC, 0, 0, SRCCOPY);
 					  SelectObject(hMemDC, hOldBitmap);
-					  DeleteObject(hBitmap);
 					  DeleteDC(hMemDC);
 					  EndPaint(hWnd, &ps);
 					  break;
