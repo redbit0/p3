@@ -120,7 +120,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					p = wcstok(NULL, p);
 #pragma warning(push)
 					pid = _wtoi(p);
-					if (!DeviceIoControl(hMyDriver, 0x800, &pid, 4, NULL, 0, NULL, NULL))
+					if (!DeviceIoControl(hMyDriver, 0x800, &pid, 4, NULL, 0, /*nothing*/(DWORD*)&pid, NULL))
 					{
 						MessageBox(0, L"전송 실패", p, 0);
 					}
