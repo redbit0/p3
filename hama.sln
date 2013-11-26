@@ -1,6 +1,8 @@
 ﻿
-Microsoft Visual Studio Solution File, Format Version 11.00
-# Visual Studio 2010
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2013
+VisualStudioVersion = 12.0.21005.1
+MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hama_app", "hama_app\hama_app.vcxproj", "{DC35F8E7-9D7D-42FE-BF24-61E82D34DE2C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{2311EDB0-BFB5-41ED-A74F-E67181E70E58}"
@@ -9,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hama_sys", "hama_sys\hama_sys.vcxproj", "{FE25DD79-4293-416C-8EDC-59FB385D9546}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HyperShield", "HyperShield\HyperShield.vcxproj", "{813B0246-7694-4823-8941-684165B12166}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -32,6 +36,12 @@ Global
 		{FE25DD79-4293-416C-8EDC-59FB385D9546}.Release|Win32.Build.0 = Release|Win32
 		{FE25DD79-4293-416C-8EDC-59FB385D9546}.Release|x64.ActiveCfg = Release|x64
 		{FE25DD79-4293-416C-8EDC-59FB385D9546}.Release|x64.Build.0 = Release|x64
+		{813B0246-7694-4823-8941-684165B12166}.Debug|Win32.ActiveCfg = Debug|Win32
+		{813B0246-7694-4823-8941-684165B12166}.Debug|Win32.Build.0 = Debug|Win32
+		{813B0246-7694-4823-8941-684165B12166}.Debug|x64.ActiveCfg = Debug|Win32
+		{813B0246-7694-4823-8941-684165B12166}.Release|Win32.ActiveCfg = Release|Win32
+		{813B0246-7694-4823-8941-684165B12166}.Release|Win32.Build.0 = Release|Win32
+		{813B0246-7694-4823-8941-684165B12166}.Release|x64.ActiveCfg = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
