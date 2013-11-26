@@ -18,6 +18,8 @@ HWND ghWnd;
 HANDLE hMyDriver;
 HBITMAP hBitmap;
 
+TCHAR *DeviceName = L"\\\\.\\matrix";
+
 int APIENTRY _tWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow)
 {
 	MSG msg;
@@ -86,7 +88,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	{
 	case WM_CREATE:
 		PlaySound(L"./resources/bgm.wav", NULL, SND_ASYNC | SND_LOOP);
-		hMyDriver = CreateFile(L"", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		hMyDriver = CreateFile(DeviceName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 		hList = CreateWindowEx(NULL, TEXT("LISTBOX"), L"", WS_CHILD | WS_VISIBLE | 1 | WS_VSCROLL | ES_AUTOVSCROLL, 95, 120, 220, 250, hWnd, NULL, hInst, NULL);
 		hBitmap = (HBITMAP)LoadImage(NULL, L"./resources/bg.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
 		Snapshot();
@@ -111,13 +113,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				if (Size_Text = lstrlen(Text_List) > 0)
 				{
 					TCHAR* p;
+					int pid;
 #pragma warning(push)
 #pragma warning(disable : 4996)
 					p = wcstok(Text_List, L" ");
 					p = wcstok(NULL, p);
 #pragma warning(push)
-
-					if (!DeviceIoControl(hMyDriver, NULL, &p, 256, NULL, NULL, NULL, NULL))
+					pid = _wtoi(p);
+					if (!DeviceIoControl(hMyDriver, 0x800, &pid, 4, NULL, 0, NULL, NULL))
 					{
 						MessageBox(0, L"전송 실패", p, 0);
 					}
