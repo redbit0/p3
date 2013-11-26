@@ -12,6 +12,9 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #include <sal.h>
+#include <ostream>
+#include <sstream>
+#include <strsafe.h>
 
 //> console logging stuffs
 #define LL_DEBG		0

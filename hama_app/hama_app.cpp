@@ -7,207 +7,201 @@
  ******************************************************************************
  * 2013/10/15   22:14 created
 ******************************************************************************/
-#include "stdafx.h"
-#include "scm_context.h"
 
+
+#include <Windows.h>
+#include <TlHelp32.h>
+#include <tchar.h>
+#include "resource.h"
+#include "scm_context.h"
+#include "util.h"
+#include <iostream>
 
 static pscm_context _scm_context = NULL;
 
 static const wchar_t* _hama_driver_name = L"hama.sys";
 static const wchar_t* _hama_service_name = L"hama";
 static const wchar_t* _hama_service_display = L"BoBoB";
+TCHAR *deviceSymName = TEXT("\\\\.\\matrix");
 
-enum hama_command 
+#define DEVICE_IO_CONTORL_SEND_PID 0x800
+
+HINSTANCE hInstance;
+HBITMAP hBitmap_bg, hBitmap_refresh;
+
+
+HANDLE hDriver;
+BOOL loaded_driver;
+
+int init_all(HWND hWnd)
 {
-	hc_exit			= 0,
-	hc_start		= 1,
-	hc_stop			= 2, 
-
-	hc_max			= 3
-};
-
-bool show_command(_Out_ hama_command& command);
-bool process_command(_In_ hama_command command);
+	loaded_driver = FALSE;
+	hBitmap_bg = (HBITMAP)LoadImage(NULL, L"./resources/bg.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+	hBitmap_refresh = (HBITMAP)LoadImage(NULL, L"./resources/refresh.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
 
 
-__int64 ret64()
-{
-	return 0x10000000ffffffff;
+	SendDlgItemMessage(hWnd, IDC_BG, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hBitmap_bg);
+	SendDlgItemMessage(hWnd, IDC_BUTTON_REFRESH, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hBitmap_refresh);
+
+	return 1;
 }
 
-/**
- * @brief	
- * @param	
- * @see		
- * @remarks	
- * @code		
- * @endcode	
- * @return	
-**/
-int _tmain(int argc, _TCHAR* argv[])
+int load_driver(HWND hWnd)
 {
-	UNREFERENCED_PARAMETER(argc);
-	UNREFERENCED_PARAMETER(argv);
+	ShowWindow(GetDlgItem(hWnd, IDC_BUTTON_REFRESH), SW_SHOW);
+	SetDlgItemText(hWnd, IDOK, TEXT("UNLOAD"));
 
-	log_msg L"===========================================================" log_end
-	log_msg L"                  [ hama application ]                     " log_end
-	log_msg L"                                                           " log_end
-	log_msg L"                              by somma (fixbrain@gmail.com)" log_end
-	log_msg L"===========================================================" log_end
+	_ASSERTE(NULL == _scm_context);
+	if (NULL != _scm_context) return true;
 
-
-	//> command loop
-	hama_command cmd = hc_exit;
-	for(;;)
+	std::wstring module_dir;
+	if (true != get_current_module_dir(module_dir))
 	{
-		if (true != show_command(cmd))
-		{
-			continue;
-		}
-
-		if (hc_exit == cmd)
-		{
-			log_info L"press any key to terminate..." log_end			
-			break;
-		}
-
-		if (true != process_command(cmd))
-		{
-			log_err L"process_command(cmd=%u) failed" log_end
-			continue;
-		}
+		log_err L"get_current_module_dir()" log_end
+		return -1;
 	}
 
-	if (NULL != _scm_context) 
+	std::wstring driver_path(module_dir);
+	driver_path += L"\\";
+	driver_path += _hama_driver_name;
+
+	if (true != is_file_existsW(driver_path.c_str()))
 	{
-		delete _scm_context; 
-		_scm_context = NULL;
+		log_err L"no driver file = %s", driver_path.c_str() log_end
+		return -1;
 	}
-	
+
+	_scm_context = new scm_context(
+		driver_path.c_str(),
+		_hama_service_name,
+		_hama_service_display,
+		true
+		);
+
+	if (NULL == _scm_context)
+	{
+		log_err L"insufficient resources for allocate scm_context()" log_end
+			return -1;
+	}
+
+	if (true != _scm_context->install_driver())
+	{
+		log_err L"scm_context::install_driver()" log_end
+		delete _scm_context; _scm_context = NULL;
+		return -1;
+	}
+
+	if (true != _scm_context->start_driver())
+	{
+		log_err L"scm_context::start_driver()" log_end
+		return -1;
+	}
+
+	log_info L"%s service started successfully", _hama_service_name log_end
+
+
+	hDriver = CreateFile(deviceSymName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+
+	loaded_driver = TRUE;
 	return 0;
 }
 
-/**
- * @brief	
- * @param	
- * @see		
- * @remarks	
- * @code		
- * @endcode	
- * @return	
-**/
-bool show_command(_Out_ hama_command& command)
+int unload_driver(HWND hWnd)
 {
-	log_msg L"\ncommands available..." log_end
-	log_msg L"___________________________________________________________" log_end
-	log_msg L"    0 - terminate" log_end
-	log_msg L"    1 - start " log_end
-	log_msg L"    2 - stop  " log_end
-	std::wcout << L">> ";
+	ShowWindow(GetDlgItem(hWnd, IDC_BUTTON_REFRESH), SW_HIDE);
+	SetDlgItemText(hWnd, IDOK, TEXT("LOAD"));
 
-	UINT32 temp = 0;
-	std::wstring str_cmd;
-	std::wcin >> str_cmd;
+	if (NULL == _scm_context) return true;			// just ignore this situation
 
-	std::wstringstream convert;
-	convert << str_cmd;
-	convert >> temp;
-	
-	//> check invalid input 
-	if(true == convert.fail() || (temp < hc_exit || temp > hc_max))
-	{ 
-		log_err L"invalid command = %s", str_cmd.c_str() log_end
-		return false; 
-	}
+	_scm_context->start_driver();
+	_scm_context->uninstall_driver();
+	log_info L"%s service stopped successfully", _hama_service_name log_end
 
-	command = (hama_command)temp;
-	return true;
+	loaded_driver = FALSE;
+	return 0;
 }
 
-/**
- * @brief	
- * @param	
- * @see		
- * @remarks	
- * @code		
- * @endcode	
- * @return	
-**/
-bool process_command(_In_ hama_command command)
+int refresh(HWND hWnd)
 {
-	bool ret = false;
+	PROCESSENTRY32 ppe;
+	TCHAR buf[512];
+	HANDLE hSnapshot;
 
-	switch (command)
+	SendDlgItemMessage(hWnd, IDC_LIST, LB_RESETCONTENT, 0, 0);
+	hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+	ppe.dwSize = sizeof(PROCESSENTRY32);
+
+	if (Process32First(hSnapshot, &ppe))
+	do{
+		_stprintf_s(buf, 260, TEXT("%s <%-5d>"), ppe.szExeFile, ppe.th32ProcessID);
+		SendDlgItemMessage(hWnd, IDC_LIST, LB_ADDSTRING, 0, (LPARAM)buf);
+	} while (Process32Next(hSnapshot, &ppe));
+	return 0;
+}
+
+int list_enter(HWND hWnd)
+{
+	int idx = SendDlgItemMessage(hWnd, IDC_LIST, LB_GETCURSEL, 0, 0);
+	TCHAR info[512];
+	SendDlgItemMessage(hWnd, IDC_LIST, LB_GETTEXT, idx, (LPARAM)&info);
+
+	if (lstrlen(info) > 0)
 	{
-	case hc_start:
+		int i = 0, b;
+		while (info[i++] != '<');
+		b = i;
+		while (info[b++] != '>');
+		info[b - 1] = '\0';
+
+		DWORD pid = _tstoi(&info[i]);
+
+		if (!DeviceIoControl(hDriver, DEVICE_IO_CONTORL_SEND_PID, &pid, 4, NULL, 0, /*nothing*/(DWORD*)&pid, NULL))
 		{
-			_ASSERTE(NULL == _scm_context);
-			if (NULL != _scm_context) return true;
-
-			
-			std::wstring module_dir;
-			if (true != get_current_module_dir(module_dir))
-			{
-				log_err L"get_current_module_dir()" log_end
-				break;
-			}
-
-			std::wstring driver_path(module_dir);
-			driver_path += L"\\";
-			driver_path += _hama_driver_name;
-
-			if (true != is_file_existsW(driver_path.c_str()))
-			{
-				log_err L"no driver file = %s", driver_path.c_str() log_end
-				break;
-			}
-		
-			_scm_context = new scm_context(
-								driver_path.c_str(), 
-								_hama_service_name, 
-								_hama_service_display, 
-								true
-								); 
-			_ASSERTE(NULL != _scm_context);
-			if (NULL == _scm_context)
-			{
-				log_err L"insufficient resources for allocate scm_context()" log_end
-				break;
-			}
-
-			if (true != _scm_context->install_driver())
-			{
-				log_err L"scm_context::install_driver()" log_end
-				delete _scm_context; _scm_context = NULL;
-				break;
-			}
-
-			if (true != _scm_context->start_driver())
-			{
-				log_err L"scm_context::start_driver()" log_end
-				//delete _scm_context; _scm_context = NULL;
-				break;
-			}
-
-			log_info L"%s service started successfully", _hama_service_name log_end
-			ret = true;
-			break;
+			MessageBox(NULL, TEXT("CANT SEND PID"), TEXT("ERROR"), MB_OK | MB_ICONERROR);
 		}
-	case hc_stop:
-		{
-			if (NULL == _scm_context) return true;			// just ignore this situation
-
-			_scm_context->start_driver();
-			_scm_context->uninstall_driver();
-			log_info L"%s service stopped successfully", _hama_service_name log_end
-			ret = true;
-			break;
+		else{
+			MessageBox(NULL, TEXT("SEND PID"), TEXT("SUCCESS"), MB_OK | MB_ICONINFORMATION);
 		}
-
-	default:
-		log_err L"invalid command = %u", command log_end
-		break;
 	}
 
-	return ret;
+	return 0;
+}
+
+
+int __stdcall MainDialog(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch (iMessage){
+	case WM_INITDIALOG:
+		return init_all(hWnd);
+	case WM_COMMAND:
+		switch (LOWORD(wParam)){
+		case IDOK:
+			if (!loaded_driver)
+				return load_driver(hWnd);
+			else
+				return unload_driver(hWnd);
+		case IDCANCEL:
+			return EndDialog(hWnd, 0);
+		case IDC_BUTTON_REFRESH:
+			return refresh(hWnd);
+		case IDC_LIST:
+			switch (HIWORD(wParam)){
+			case LBN_DBLCLK:
+				return list_enter(hWnd);
+			}
+		}
+	}
+
+
+	return DefWindowProc(hWnd, iMessage, wParam, lParam);
+}
+
+int __stdcall WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, char* cmd, int show)
+{
+	UNREFERENCED_PARAMETER(hPrevInstance);
+	UNREFERENCED_PARAMETER(cmd);
+	UNREFERENCED_PARAMETER(show);
+	hInstance = _hInstance;
+	DialogBox(hInstance, MAKEINTRESOURCE(IDD_DIALOG_MAIN), NULL, MainDialog);
+	return 0;
 }
