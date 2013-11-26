@@ -11,7 +11,7 @@
 #include "DriverDebug.h"
 #include "scancode.h"
 #include "start_vm.h"
-#include <wdm.h>
+
 
 
 ///////////////
@@ -19,7 +19,6 @@
 //  Globals  //
 //           //
 ///////////////
-
 
 
 VCPU	_vcpu = { 0 };
@@ -57,6 +56,10 @@ MISC_DATA					misc_data = { 0 };
 PVOID						GuestReturn = NULL;
 ULONG						GuestStack = 0;
 
+ULONG						ori_sysenter = 0;
+extern pid;
+extern cr3_val;
+UCHAR *						handler = 0;
 
 
 /**
@@ -68,6 +71,39 @@ ULONG						GuestStack = 0;
 * @endcode
 * @return
 **/
+
+__declspec(naked) VOID MySysenter(){
+	__asm{
+		pushad
+			mov temp32, eax
+	}
+
+	if (temp32 == 0x7a){
+		__asm{
+			mov eax, [edx + 0x14]
+				mov eax, [eax]
+				mov temp32, eax
+		}
+		if (pid == temp32){
+			__asm{
+				mov eax, 0xffffffff
+					mov ebx, [edx + 0x14]
+					mov[ebx], eax
+			}
+			__asm{
+				mov eax, fs:0x18
+					mov eax, [eax + 0x20]
+					mov temp32, eax
+			}
+			DbgPrint("Access PID : %d\n", temp32);
+		}
+	}
+	__asm{
+		popad
+			jmp ori_sysenter
+	}
+}
+
 VOID __stdcall VM_DispatchUnload(IN  PDRIVER_OBJECT  DriverObject)
 {
 	ULONG		ExitEFlags = 0;
@@ -506,7 +542,7 @@ __declspec(naked) VOID StartVMX()
 	{
 		PUSH	DWORD PTR 0
 			PUSH	DWORD PTR _vcpu.vmcs_region_physical.LowPart
-			int 3
+
 			_emit	0x66	// VMCLEAR [ESP]
 			_emit	0x0F
 			_emit	0xc7
@@ -1126,11 +1162,15 @@ __declspec(naked) VOID StartVMX()
 	Log("Setting Guest IA32_SYSENTER_ESP", msr.Lo);
 	WriteVMCS(0x00006824, msr.Lo);
 
+	//chofly
 	//			Guest IA32_SYSENTER_EIP								00006826H
 	//			MSR (176H)
 	ReadMSR(0x176);
 	Log("Setting Guest IA32_SYSENTER_EIP", msr.Lo);
-	WriteVMCS(0x00006826, msr.Lo);
+
+	ori_sysenter = msr.Lo;
+	//WriteVMCS( 0x00006826, msr.Lo );
+	WriteVMCS(0x00006826, (ULONG)MySysenter);
 
 
 	//	*********************************************
@@ -1423,6 +1463,7 @@ __declspec(naked) VOID VMMEntryPoint()
 	//  Exit Reason  //		0x00004400
 	//               //
 	///////////////////
+
 	__asm
 	{
 		PUSHAD
@@ -1859,10 +1900,11 @@ __declspec(naked) VOID VMMEntryPoint()
 	/////////////
 	if (ExitReason == 0x0000001F)
 	{
-		Log("Read MSR - CPU0", GuestECX);
+		//Log( "Read MSR - CPU0" , GuestECX );
 		__asm
 		{
-			POPAD
+			int 3
+				POPAD
 
 				MOV		ECX, GuestECX
 
@@ -1944,69 +1986,105 @@ __declspec(naked) VOID VMMEntryPoint()
 	//  Control Register Access  //
 	//                           //
 	///////////////////////////////
+
 	if (ExitReason == 0x0000001C)
 	{
-		if (HandlerLogging) Log("Control Register Access detected.", 0);
-
+		//Log( "Control Register Access detected.", 0 );
 		movcrControlRegister = (ExitQualification & 0x0000000F);
 		movcrAccessType = ((ExitQualification & 0x00000030) >> 4);
 		movcrOperandType = ((ExitQualification & 0x00000040) >> 6);
 		movcrGeneralPurposeRegister = ((ExitQualification & 0x00000F00) >> 8);
 
-		if (HandlerLogging)
-		{
-			Log("- movcrControlRegister", movcrControlRegister);
-			Log("- movcrAccessType", movcrAccessType);
-			Log("- movcrOperandType", movcrOperandType);
-			Log("- movcrGeneralPurposeRegister", movcrGeneralPurposeRegister);
-		}
+		//Log( "- movcrControlRegister", movcrControlRegister );
+		//Log( "- movcrAccessType", movcrAccessType );
+		//Log( "- movcrOperandType", movcrOperandType );
+		//Log( "- movcrGeneralPurposeRegister", movcrGeneralPurposeRegister );
 
 		//	Control Register Access (CR3 <-- reg32)
 		//
+		ErrorCode = 0;
+		//chofly
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 0)
 		{
+
+			if (GuestEAX == ErrorCode){
+				Log("Guest EIP", GuestEIP);
+				__asm{
+
+					mov eax, GuestCR3
+						mov cr3, eax
+						mov eax, fs:0x18
+						mov eax, [eax + 0x20]
+						mov temp32, eax
+
+				}
+				DbgPrint("Access PID : %x\n", temp32);
+			}
+
 			WriteVMCS(0x00006802, GuestEAX);
 			__asm POPAD
 			goto Resume;
+
 		}
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 1)
 		{
+			if (GuestEAX == ErrorCode){
+				Log("notepad hit ecx", GuestECX);
+			}
 			WriteVMCS(0x00006802, GuestECX);
 			__asm POPAD
 			goto Resume;
 		}
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 2)
 		{
+			if (GuestEAX == ErrorCode){
+				Log("notepad hit edx", GuestEDX);
+			}
 			WriteVMCS(0x00006802, GuestEDX);
 			__asm POPAD
 			goto Resume;
 		}
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 3)
 		{
+			if (GuestEAX == ErrorCode){
+				Log("notepad hit ebx", GuestEBX);
+			}
 			WriteVMCS(0x00006802, GuestEBX);
 			__asm POPAD
 			goto Resume;
 		}
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 4)
 		{
+			if (GuestEAX == ErrorCode){
+				Log("notepad hit esp", GuestESP);
+			}
 			WriteVMCS(0x00006802, GuestESP);
 			__asm POPAD
 			goto Resume;
 		}
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 5)
 		{
+			if (GuestEAX == ErrorCode){
+				Log("notepad hit ebp", GuestEBP);
+			}
 			WriteVMCS(0x00006802, GuestEBP);
 			__asm POPAD
 			goto Resume;
 		}
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 6)
 		{
+			if (GuestEAX == ErrorCode){
+				Log("notepad hit esi", GuestESI);
+			}
 			WriteVMCS(0x00006802, GuestESI);
 			__asm POPAD
 			goto Resume;
 		}
 		if (movcrControlRegister == 3 && movcrAccessType == 0 && movcrOperandType == 0 && movcrGeneralPurposeRegister == 7)
 		{
+			if (GuestEAX == ErrorCode){
+				Log("notepad hit edi", GuestEDI);
+			}
 			WriteVMCS(0x00006802, GuestEDI);
 			__asm POPAD
 			goto Resume;
@@ -2163,7 +2241,7 @@ __declspec(naked) VOID VMMEntryPoint()
 						pop		eax
 				}
 
-				if (_vcpu.pc < 0x80) { KdPrint(("%c", scancode[_vcpu.pc])); }
+				//if (_vcpu.pc < 0x80) { KdPrint(("a %c", scancode[_vcpu.pc]));}
 
 				//> emulate 'inb'
 				__asm
@@ -2511,6 +2589,27 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 				status = STATUS_INSUFFICIENT_RESOURCES;
 			break;
 		}
+
+		//chofly
+		/*
+		handler = (UCHAR*) MmAllocateNonCachedMemory(0x1000);
+		if (NULL == handler)
+		{
+		log_err "MmAllocateNonCachedMemory( HANDLER )" log_end
+		status = STATUS_INSUFFICIENT_RESOURCES;
+		break;
+		}
+		memcpy(handler, MySysenter, 0x1000);
+		__asm{
+		int 3
+		}
+		PMDL hi;
+		hi = IoAllocateMdl(handler, 0x1000, 0, 0, 0);
+		MmBuildMdlForNonPagedPool(hi);
+		MmMapLockedPages(hi, 1);
+		MmProtectMdlSystemAddress(hi, PAGE_EXECUTE_READ);
+		*/
+
 	} while (false);
 
 

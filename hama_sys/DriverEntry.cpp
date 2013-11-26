@@ -1,225 +1,174 @@
 ﻿/*-----------------------------------------------------------------------------
- * DriverEntry.cpp
- *-----------------------------------------------------------------------------
- * 
- *-----------------------------------------------------------------------------
- * All rights reserved by somma (fixbrain@gmail.com, unsorted@msn.com)
- *-----------------------------------------------------------------------------
- * - 10.11.2010 created
+* DriverEntry.cpp
+*-----------------------------------------------------------------------------
+*
+*-----------------------------------------------------------------------------
+* All rights reserved by somma (fixbrain@gmail.com, unsorted@msn.com)
+*-----------------------------------------------------------------------------
+* - 10.11.2010 created
 **---------------------------------------------------------------------------*/
 #include "DriverHeaders.h"
 #include "DriverDebug.h"
 #include "fc_drv_util.h"
 
-
-//#include "arch.h"
 #include "start_vm.h"
 
-// 
-// global
-// 
-PDEVICE_EXTENSION		g_dev_ext = NULL;
 
-// nt dispatch functions
-NTSTATUS	__stdcall DispatchDummy(IN PDEVICE_OBJECT DeviceObject,IN PIRP Irp);
-NTSTATUS	__stdcall DispatchDeviceIoControl(IN PDEVICE_OBJECT DeviceObject,IN PIRP Irp);
-VOID		__stdcall DispatchUnload(IN PDRIVER_OBJECT DriverObject);
-NTSTATUS	__stdcall DispatchCleanup(IN PDEVICE_OBJECT DeviceObject,IN PIRP Irp);
+NTSTATUS MajorDeviceControl(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
+NTSTATUS MajorCreate(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
+NTSTATUS MajorClose(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp);
+VOID DriverUnload(IN PDRIVER_OBJECT DriverObject);
+PDEVICE_OBJECT	pDeviceObject = NULL;
+UNICODE_STRING	uniDriverName;
+UNICODE_STRING	uniDosDriverName;
+int pid = -1;
+int cr3_val = -1;
+
+#define MY_IOCTL_INDEX 0x800
+#define IOCTL_MY_FUNCTION1 CTL_CODE(FILE_DEVICE_UNKNOWN, MY_IOCTL_INDEX, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 
 /**----------------------------------------------------------------------------
-    \brief  DriverEntry
+\brief  DriverEntry
 
-    \param  
-    \return         
-    \code
-    \endcode        
+\param
+\return
+\code
+\endcode
 -----------------------------------------------------------------------------*/
-extern "C" 
+extern "C"
 NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath)
 {
 	UNREFERENCED_PARAMETER(RegistryPath);
-	NTSTATUS            status;
-	PDEVICE_OBJECT      deviceObject;
-	UNICODE_STRING      ntName;
-	UNICODE_STRING      win32Name;
+	NTSTATUS            ntStatus;
+
 
 	log_info
 		"\n\n===============================================================================\n"\
 		"driver Compiled at %s on %s \n"\
-		"===============================================================================\n", 
+		"===============================================================================\n",
 		__TIME__, __DATE__
-	log_end
-
-	
-
-
-
-    //> device 이름 생성
-    RtlInitUnicodeString(&ntName, _nt_device_name);
-    status = IoCreateDevice(
-                    DriverObject, 
-					sizeof(DEVICE_EXTENSION), 
-					&ntName, 
-					FILE_DEVICE_UNKNOWN, 
-					FILE_DEVICE_SECURE_OPEN, 
-					TRUE, 
-					&deviceObject
-                    );
-    if (FALSE == NT_SUCCESS(status))
-    {		    
-        return status;
-    }
-
-	//> add your own initialization routine
-	g_dev_ext = (PDEVICE_EXTENSION) deviceObject->DeviceExtension;
-	RtlZeroMemory(g_dev_ext, sizeof(DEVICE_EXTENSION));
-	
-    //> symbolic link 생성
-    RtlInitUnicodeString(&win32Name, _dos_device_name);	
-    status = IoCreateSymbolicLink ( &win32Name, &ntName);
-	if (FALSE == NT_SUCCESS(status))
-    {
-        IoDeleteDevice( DriverObject ->DeviceObject );
-		return status;
-    }
-
-    // initialize function pointers
-    for (int i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++) 
-    {
-	    DriverObject->MajorFunction[i] = DispatchDummy;
-    }
-    DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = DispatchDeviceIoControl;
-    DriverObject->MajorFunction[IRP_MJ_CLEANUP] = DispatchCleanup;   
-    DriverObject->DriverUnload = DispatchUnload;
-
-
-	start_vm();
-
-    g_dev_ext->initialized = true;
-	return STATUS_SUCCESS;
-}
-
-/**
-* @brief	
-* @param	
-* @see		
-* @remarks	
-* @code		
-* @endcode	
-* @return	
-*/
-NTSTATUS __stdcall DispatchDummy(
-	IN  PDEVICE_OBJECT  DeviceObject,
-	IN  PIRP            Irp
-	)
-{
-	UNREFERENCED_PARAMETER(DeviceObject);
-	Irp ->IoStatus.Status = STATUS_SUCCESS;
-	Irp->IoStatus.Information = 0;	
-	IoCompleteRequest( Irp, IO_NO_INCREMENT );
-
-	return STATUS_SUCCESS;
-}
-
-/**
-* @brief	
-* @param	
-* @see		
-* @remarks	
-* @code		
-* @endcode	
-* @return	
-*/
-NTSTATUS 
-__stdcall DispatchDeviceIoControl(
-	IN  PDEVICE_OBJECT  DeviceObject,
-	IN  PIRP            Irp
-	)
-{
-	NTSTATUS status = STATUS_SUCCESS;
-	UNREFERENCED_PARAMETER(DeviceObject);
-	
-	/*
-	ULONG_PTR bytes_returned = 0;
-	
-	NTSTATUS status = fc_drv_iocontrol(DeviceObject, Irp, &bytes_returned);
-	if (TRUE != NT_SUCCESS(status))
-	{
-		log_err
-			"fc_drv_iocontrol(DeviceObject=0x%08p, Irp=0x%08p) failed, status=0x%08x", 
-			DeviceObject, Irp, status
 		log_end
+
+
+		start_vm();
+
+
+	//> device 이름 생성
+	RtlInitUnicodeString(&uniDriverName, L"\\Device\\matrix");
+	RtlInitUnicodeString(&uniDosDriverName, L"\\DosDevices\\matrix");
+
+	ntStatus = IoCreateDevice(DriverObject, 0, &uniDriverName, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, TRUE, &pDeviceObject);
+	if (FALSE == NT_SUCCESS(ntStatus))
+	{
+		return ntStatus;
 	}
-	status = CompleteRequest(Irp, status, bytes_returned);
-	*/
-	
-	Irp ->IoStatus.Status = status;
-	Irp->IoStatus.Information = 0;	
-	IoCompleteRequest( Irp, IO_NO_INCREMENT );
-	return status;
-}
 
-/**
-* @brief	
-* @param	
-* @see		
-* @remarks	
-* @code		
-* @endcode	
-* @return	
-*/
-NTSTATUS 
-__stdcall 
-DispatchCleanup(
-	IN  PDEVICE_OBJECT  DeviceObject,
-	IN  PIRP            Irp
-	)
-{
-	UNREFERENCED_PARAMETER(DeviceObject);
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = MajorDeviceControl;
+	DriverObject->MajorFunction[IRP_MJ_CREATE] = MajorCreate;
+	DriverObject->MajorFunction[IRP_MJ_CLOSE] = MajorClose;
 
-	// do something
-	PDEVICE_EXTENSION pdx = (PDEVICE_EXTENSION) DeviceObject->DeviceExtension;
-	UNREFERENCED_PARAMETER(pdx);
-	
-	Irp ->IoStatus.Status = STATUS_SUCCESS;
-	Irp->IoStatus.Information = 0;	
-	IoCompleteRequest( Irp, IO_NO_INCREMENT );
+	DriverObject->DriverUnload = DriverUnload;
 
-	log_info "driver cleanup called successfully" log_end
+	ntStatus = IoCreateSymbolicLink(&uniDosDriverName, &uniDriverName);
+	if (!NT_SUCCESS(ntStatus)) {
+		IoDeleteDevice(DriverObject->DeviceObject);
+		return ntStatus;
+	}
+
 	return STATUS_SUCCESS;
 }
 
-
-/**
-* @brief	
-* @param	
-* @see		
-* @remarks	
-* @code		
-* @endcode	
-* @return	
-*/
-VOID 
-__stdcall 
-DispatchUnload(
-	IN  PDRIVER_OBJECT  DriverObject
-	)
+VOID DriverUnload(IN PDRIVER_OBJECT DriverObject)
 {
-	UNICODE_STRING Win32NameString;
-	PDEVICE_OBJECT DevObj = DriverObject->DeviceObject;
+	PDEVICE_OBJECT pDeviceObject;
 
-	// 
-	// ADD DRIVER UNLOAD CODE
-	// 
+	pDeviceObject = DriverObject->DeviceObject;
+	IoDeleteSymbolicLink(&uniDosDriverName);
+	IoDeleteDevice(DriverObject->DeviceObject);
 
-	VM_DispatchUnload(DriverObject);
+	DbgPrint("Driver Unload! \n");
+}
 
-	
-	// symbolic link 제거 및 디바이스 객체 삭제
-	//
-	RtlInitUnicodeString (&Win32NameString , _dos_device_name);	
-	IoDeleteSymbolicLink (&Win32NameString);	
-	IoDeleteDevice( DevObj );
-	log_info "driver unloaded successfully" log_end
+
+NTSTATUS MajorDeviceControl(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
+{
+	PIO_STACK_LOCATION IrpStack;
+	ULONG dwFunctionCode;
+	ULONG *Buffer;
+	ULONG base = 0;
+	ULONG old_base = -1;
+	ULONG pid_tmp = -1;
+
+	IrpStack = IoGetCurrentIrpStackLocation(Irp);
+	dwFunctionCode = IrpStack->Parameters.DeviceIoControl.IoControlCode;
+	Buffer = (ULONG*)Irp->AssociatedIrp.SystemBuffer;
+
+	DbgPrint("In here\n");
+	switch (dwFunctionCode) {
+	case 0x800:
+		pid = *Buffer;
+
+
+		__asm{
+			mov eax, fs:0x124
+				mov eax, [eax + 0x44]
+				mov old_base, eax
+		};
+		base = old_base;
+		while (1){
+			__asm{
+				mov eax, base
+					mov eax, [eax + 0x84]
+					mov pid_tmp, eax
+			};
+			if (pid_tmp == pid){
+				__asm{
+					mov eax, base
+						mov eax, [eax + 0x18]
+						mov cr3_val, eax
+				};
+				break;
+			}
+			else{
+				__asm{
+					mov eax, base
+						mov eax, [eax + 0x88]
+						mov eax, [eax]
+						sub eax, 0x88
+						mov base, eax
+				}
+			}
+			if (base == old_base){
+				DbgPrint("no process\n");
+				break;
+			}
+		}
+		DbgPrint("PID : %d\n", pid);
+		DbgPrint("CR3 : %x\n", cr3_val);
+	}
+
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = sizeof(ULONG);
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS MajorCreate(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
+{
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = 0;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS MajorClose(IN PDEVICE_OBJECT DeviceObject, IN PIRP Irp)
+{
+	Irp->IoStatus.Status = STATUS_SUCCESS;
+	Irp->IoStatus.Information = 0;
+	IoCompleteRequest(Irp, IO_NO_INCREMENT);
+
+	return STATUS_SUCCESS;
 }
