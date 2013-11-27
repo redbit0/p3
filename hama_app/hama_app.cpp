@@ -193,7 +193,7 @@ int __stdcall MainDialog(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
 	}
 
 
-	return DefWindowProc(hWnd, iMessage, wParam, lParam);
+	return 0;
 }
 
 int __stdcall WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, char* cmd, int show)
