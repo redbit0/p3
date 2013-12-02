@@ -27,27 +27,96 @@ TCHAR *deviceSymName = TEXT("\\\\.\\matrix");
 #define DEVICE_IO_CONTORL_SEND_PID 0x800
 
 HINSTANCE hInstance;
-HBITMAP hBitmap_bg, hBitmap_refresh;
 
 
 HANDLE hDriver;
 BOOL loaded_driver;
 
+int hyper_animation;
+int screen_x, screen_y;
+LRESULT __stdcall draw_proc(HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam)
+{
+	switch (iMessage){
+		case WM_CREATE:
+			screen_x = GetSystemMetrics(SM_CXSCREEN);
+			screen_y = GetSystemMetrics(SM_CYSCREEN);
+			SetLayeredWindowAttributes(hWnd, RGB(255, 255, 255), 100, LWA_COLORKEY);
+			SetTimer(hWnd, 0, 20, NULL);
+			return 0;
+
+		case WM_PAINT:{
+						  PAINTSTRUCT ps;
+						  HDC hdc = BeginPaint(hWnd, &ps);
+						  
+						  SelectObject(hdc, GetStockObject(WHITE_PEN));
+						  SelectObject(hdc, GetStockObject(WHITE_BRUSH));
+						  Rectangle(hdc, 0, 0, screen_x, screen_y);
+
+						  HPEN red_brush = CreatePen(PS_SOLID, 50, RGB(255, 0, 0));//CreateSolidBrush(RGB(255, 0, 0));
+						  HPEN old_brush = (HPEN)SelectObject(hdc, red_brush);
+
+						  MoveToEx(hdc, 0, hyper_animation, NULL);
+						  LineTo(hdc, screen_x, hyper_animation);
+
+						  DeleteObject(SelectObject(hdc, old_brush));
+						  EndPaint(hWnd, &ps);
+						  break;
+		}
+		case WM_TIMER:
+			if (hyper_animation > screen_y){
+				KillTimer(hWnd, 0);
+				ShowWindow(hWnd, SW_HIDE);
+			}
+			hyper_animation += 25;
+			InvalidateRect(hWnd, NULL, TRUE);
+			break;
+	}
+
+	return DefWindowProc(hWnd, iMessage, wParam, lParam);
+}
+void animate()
+{
+	HDC hdc = GetWindowDC(NULL);
+	int x = screen_x  = GetSystemMetrics(SM_CXSCREEN);
+	int y = screen_y = GetSystemMetrics(SM_CYSCREEN);
+
+	WNDCLASS wndClass;
+	wndClass.cbClsExtra = 0;
+	wndClass.cbWndExtra = 0;
+	wndClass.hbrBackground = NULL;// (HBRUSH)GetStockObject(WHITE_BRUSH);
+	wndClass.hCursor = NULL;
+	wndClass.hIcon = NULL;
+	wndClass.hInstance = hInstance;
+	wndClass.lpfnWndProc = draw_proc;
+	wndClass.lpszClassName = TEXT("draw_window");
+	wndClass.lpszMenuName = NULL;
+	wndClass.style = NULL;
+
+	RegisterClass(&wndClass);
+	CreateWindowEx(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_COMPOSITED | WS_EX_TOOLWINDOW, TEXT("draw_window"), TEXT("draw_window"), WS_POPUP | WS_VISIBLE, 0, 0, x, y, NULL, NULL, hInstance, NULL);
+
+}
+
 int init_all(HWND hWnd)
 {
 	loaded_driver = FALSE;
-	hBitmap_bg = (HBITMAP)LoadImage(NULL, L"./resources/bg.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
-	hBitmap_refresh = (HBITMAP)LoadImage(NULL, L"./resources/refresh.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+	HBITMAP hBitmap_bg = (HBITMAP)LoadImage(NULL, L"./resources/bg.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+	HBITMAP hBitmap_refresh = (HBITMAP)LoadImage(NULL, L"./resources/refresh.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+	HBITMAP hBitmap_load = (HBITMAP)LoadImage(NULL, L"./resources/load.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
+	HBITMAP hBitmap_exit = (HBITMAP)LoadImage(NULL, L"./resources/exit.bmp", IMAGE_BITMAP, 0, 0, LR_LOADFROMFILE);
 
 
 	SendDlgItemMessage(hWnd, IDC_BG, STM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hBitmap_bg);
 	SendDlgItemMessage(hWnd, IDC_BUTTON_REFRESH, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hBitmap_refresh);
+	SendDlgItemMessage(hWnd, IDOK, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hBitmap_load);
+	SendDlgItemMessage(hWnd, IDCANCEL, BM_SETIMAGE, IMAGE_BITMAP, (LPARAM)hBitmap_exit);
 
 	return 1;
 }
 
 int load_driver(HWND hWnd)
 {
+	animate();
 	ShowWindow(GetDlgItem(hWnd, IDC_BUTTON_REFRESH), SW_SHOW);
 	SetDlgItemText(hWnd, IDOK, TEXT("UNLOAD"));
 
@@ -103,7 +172,7 @@ int load_driver(HWND hWnd)
 	hDriver = CreateFile(deviceSymName, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 
 	loaded_driver = TRUE;
-	return 0;
+	return 1;
 }
 
 int unload_driver(HWND hWnd)
@@ -118,7 +187,7 @@ int unload_driver(HWND hWnd)
 	log_info L"%s service stopped successfully", _hama_service_name log_end
 
 	loaded_driver = FALSE;
-	return 0;
+	return 1;
 }
 
 int refresh(HWND hWnd)
@@ -136,7 +205,7 @@ int refresh(HWND hWnd)
 		_stprintf_s(buf, 260, TEXT("%s <%-5d>"), ppe.szExeFile, ppe.th32ProcessID);
 		SendDlgItemMessage(hWnd, IDC_LIST, LB_ADDSTRING, 0, (LPARAM)buf);
 	} while (Process32Next(hSnapshot, &ppe));
-	return 0;
+	return 1;
 }
 
 int list_enter(HWND hWnd)
@@ -157,10 +226,10 @@ int list_enter(HWND hWnd)
 
 		if (!DeviceIoControl(hDriver, DEVICE_IO_CONTORL_SEND_PID, &pid, 4, NULL, 0, /*nothing*/(DWORD*)&pid, NULL))
 		{
-			MessageBox(NULL, TEXT("CANT SEND PID"), TEXT("ERROR"), MB_OK | MB_ICONERROR);
+			MessageBox(hWnd, TEXT("CANT SEND PID"), TEXT("ERROR"), MB_OK | MB_ICONERROR);
 		}
 		else{
-			MessageBox(NULL, TEXT("SEND PID"), TEXT("SUCCESS"), MB_OK | MB_ICONINFORMATION);
+			MessageBox(hWnd, TEXT("SEND PID"), TEXT("SUCCESS"), MB_OK | MB_ICONINFORMATION);
 		}
 	}
 

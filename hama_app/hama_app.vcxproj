@@ -94,8 +94,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <PostBuildEvent>
-      <Command>
-      </Command>
+      <Command>python post_build.py $(TargetDir)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -173,6 +172,9 @@ copy $(TargetPath) v:\</Command>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="hama_app.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="post_build.py" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
