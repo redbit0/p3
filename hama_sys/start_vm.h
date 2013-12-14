@@ -28,70 +28,6 @@
 #pragma warning(disable: 4201)
 #pragma warning(disable: 4214)
 
-//> VM-execution control bits
-#define PROC_BASED_HLT_EXITING			7
-#define PROC_BASED_USE_IOBITMAP			25
-
-//> exit reason
-#define EXIT_REASON_IO_INSTRUCTION      30
-
-#define IO_BITMAP_A			0x00002000
-#define IO_BITMAP_A_HIGH	0x00002001
-#define IO_BITMAP_B			0x00002002
-#define IO_BITMAP_B_HIGH	0x00002003
-
-//> keyboard stuff 8042
-/*
-8042 Status Register (port 64h read)
-
-|7|6|5|4|3|2|1|0|  8042 Status Register
-| | | | | | | `---- output register (60h) has data for system
-| | | | | | `----- input register (60h/64h) has data for 8042
-| | | | | `------ system flag (set to 0 after power on reset)
-| | | | `------- data in input register is command (1) or data (0)
-| | | `-------- 1=keyboard enabled, 0=keyboard disabled (via switch)
-| | `--------- 1=transmit timeout (data transmit not complete)
-| `---------- 1=receive timeout (data transmit not complete)
-`----------- 1=even parity rec'd, 0=odd parity rec'd (should be odd)
-*/
-
-//> Status register bits
-#define KEYB_STATUS_OBUFFER_FULL        (1 << 0)
-#define KEYB_STATUS_IBUFFER_FULL        (1 << 1)
-#define KEYB_STATUS_TRANSMIT_TIMEOUT    (1 << 5)
-#define KEYB_STATUS_PARITY_ERROR        (1 << 7)
-
-//> In READ mode. Can be read at any time
-#define KEYB_REGISTER_STATUS  0x64
-
-//> In READ mode. Should be read if bit 0 of status register is 1
-#define KEYB_REGISTER_OUTPUT  0x60
-
-//> In WRITE mode. Data should only be written if Bit 1 of the status register
-//	is zero (register is empty)
-#define KEYB_REGISTER_DATA    0x60
-
-
-// EXIT REASON == EXIT_REASON_IO_INSTRUCTION 일때 
-// Exit Qualification 값
-typedef struct _EXITQL_IO_INSTRUCTION
-{
-	union
-	{
-		UINT32		value;
-		struct
-		{
-			UINT32	size_of_access : 3;		// 0,	0 = 1byte, 1 = 2bytes, 3 = 4bytes. other values are not used.
-			UINT32	direction : 1;		// 3,	0 = out, 1 = in
-			UINT32	instr_string : 1;		// 4,	0 = not string, 1 = string
-			UINT32	rep_prefixed : 1;		// 5,	0 = not rep, 1 = rep
-			UINT32	operand_encoding : 1;		// 6,	0 = DX, 1 = immediate
-			UINT32	reserved_7_15 : 8;		// 7,	reserved, cleared to 0
-			UINT32	port_number : 16;		// 15,	port number	 (as specified in DX or in an immediate operand)
-			//UINT64	reserved_32_63	: 32;		// 16,	reserved, cleared to 0. (these bits exist only on processors that support intel 64 architecture)
-		};
-	};
-} EXITQL_IO_INSTRUCTION, *PEXITQL_IO_INSTRUCTION;
 
 void set_bit32(IN OUT ULONG* bit32_value, IN ULONG single_bit);
 
@@ -113,26 +49,11 @@ typedef struct _VCPU
 	UINT32					vmcs_region_size;
 	PHYSICAL_ADDRESS		vmcs_region_physical;
 
-	UCHAR*					io_bitmap_a;
-	UCHAR*					io_bitmap_b;
-	PHYSICAL_ADDRESS		io_bitmap_a_physical;
-	PHYSICAL_ADDRESS		io_bitmap_b_physical;
-
 	UCHAR*					fake_stack;
-
-	// todo handle_io_instruction() 함수로 구현하기
-	EXITQL_IO_INSTRUCTION	io_instr_exitq;
-	UINT32					port;
-	UINT32					io_size;
-	UINT8					port_status;
-	UINT8					pc;
 
 	UINT_PTR			vmx_fake_stack;
 
 } VCPU, *PVCPU;
-
-
-//< somma
 
 
 #define IA32_VMX_BASIC_MSR_CODE			0x480
