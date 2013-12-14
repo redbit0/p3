@@ -563,7 +563,7 @@ __declspec(naked) VOID StartVMX()
 	Log("SUCCESS : VMCLEAR operation completed.", 0);
 
 	//	(4)	Execute the VMPTRLD instruction by supplying the guest-VMCS address.
-	//		This initializes the working-VMCS pointer with the new VMCS region뭩
+	//		This initializes the working-VMCS pointer with the new VMCS region占퐏
 	//		physical address.
 	__asm
 	{
@@ -723,25 +723,8 @@ __declspec(naked) VOID StartVMX()
 	temp32 |= msr.Lo;
 	temp32 &= msr.Hi;
 
-	//> somma
-	set_bit32(&temp32, PROC_BASED_USE_IOBITMAP);				// Use I/O bitmaps
-	set_bit32(&temp32, PROC_BASED_HLT_EXITING);					// HLT
-
 	Log("Setting Pri Proc-Based Controls Mask", temp32);
 	WriteVMCS(0x00004002, temp32);
-
-
-	/*
-	*((char*)_vcpu.io_bitmap_a + (0x60/8)) = 0x11;
-	*/
-	*(_vcpu.io_bitmap_a + (0x60 / 8)) = 0x11;
-	WriteVMCS(IO_BITMAP_A_HIGH, _vcpu.io_bitmap_a_physical.HighPart);
-	WriteVMCS(IO_BITMAP_A, _vcpu.io_bitmap_a_physical.LowPart);
-	WriteVMCS(IO_BITMAP_B_HIGH, _vcpu.io_bitmap_b_physical.HighPart);
-	WriteVMCS(IO_BITMAP_B, _vcpu.io_bitmap_b_physical.LowPart);
-
-
-
 
 	//	Get the CR3-target count, MSR store/load counts, et cetera
 	//
@@ -2141,135 +2124,6 @@ __declspec(naked) VOID VMMEntryPoint()
 		}
 	}
 
-
-	//> somma
-	// 우리은행 (touchenkey) 의 경우 이상한 동작 + 키보드 먹통 현상
-	// outb 인스트럭션 발생 (GuestEAX = 0xD2)
-	// --> 어떤 port 에 out 을 하는지 .. 로그 잘 찍어보기..
-	// --> 다른 trap 또는 debugger 와 연관되어있는건 아닌가?
-	//
-	// 키보드가 먹통이 됨 (vmware 때문인지... ?)
-	// IE 종료 후에도 계속 먹통
-	if (ExitReason == EXIT_REASON_IO_INSTRUCTION)
-	{
-
-		_vcpu.io_instr_exitq.value = ExitQualification;
-		if (0 == _vcpu.io_instr_exitq.operand_encoding)
-		{
-			_vcpu.port = GuestEDX;
-		}
-		else
-		{
-			_vcpu.port = _vcpu.io_instr_exitq.port_number;
-		}
-
-		_vcpu.io_size = _vcpu.io_instr_exitq.size_of_access + 1;
-
-		if (_vcpu.io_size != 1)
-		{
-			Log("oops! invalid _io_size=", _vcpu.io_size);
-			__asm
-			{
-				popad
-					jmp Resume;
-			}
-		}
-
-		if (_vcpu.port != 0x60 && _vcpu.port != 0x64)
-		{
-			Log("oops! invalid port=", _vcpu.port);
-			/*
-			__asm
-			{
-			popad
-			jmp Resume;
-			}
-			*/
-		}
-
-		if (0 == _vcpu.io_instr_exitq.direction)
-		{
-			Log("emulate outb ", GuestEAX);
-
-			// out - nothing to emulate
-			// just resume
-			__asm
-			{
-				push	eax
-					mov		eax, GuestEAX
-					mov		edx, _vcpu.port
-					out		dx, al
-					pop		eax
-
-					mov		eax, GuestEAX
-					jmp		Resume
-			}
-		}
-		else
-		{
-			// in
-
-			if (_vcpu.port == 0x64)
-			{
-				// read status
-				__asm
-				{
-					push	eax
-						mov		edx, 0x64
-						in		al, dx
-						mov		_vcpu.port_status, al
-						pop		eax
-				}
-
-				//> emulate 'inb'
-				__asm
-				{
-					popad
-						mov		al, _vcpu.port_status
-				}
-				goto Resume;
-			}
-			else if (_vcpu.port == 0x60)
-			{
-				// read data
-				__asm
-				{
-					push	eax
-						mov		edx, 0x60
-						in		al, dx
-						mov		_vcpu.pc, al
-						pop		eax
-				}
-
-				//if (_vcpu.pc < 0x80) { KdPrint(("a %c", scancode[_vcpu.pc]));}
-
-				//> emulate 'inb'
-				__asm
-				{
-					popad
-						mov		al, _vcpu.pc
-				}
-				goto Resume;
-			}
-			else
-			{
-				Log("oops! invalid _vcpu.port=", _vcpu.port);
-				__asm
-				{
-					push	eax
-						mov		edx, _vcpu.port
-						in		al, dx
-						mov		_vcpu.pc, al
-						pop		eax
-
-						popad
-						mov		al, _vcpu.pc
-						jmp		Resume
-				}
-			}
-		}
-	}
-
 	Log("oops! no exit reason handler", ExitReason);
 	__asm
 	{
@@ -2559,28 +2413,6 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 		RtlZeroMemory(cpu.vmcs_region, VMCS_RGN_SIZE);
 		cpu.vmcs_region_physical = (PHYSICAL_ADDRESS)MmGetPhysicalAddress(cpu.vmcs_region);
 
-		// allocate I/O bitmap A memory
-		cpu.io_bitmap_a = (UCHAR*)MmAllocateNonCachedMemory(VMX_RGN_BLOCKSIZE);
-		if (NULL == cpu.io_bitmap_a)
-		{
-			log_err "MmAllocateNonCachedMemory( io_bitmap_a )" log_end
-				status = STATUS_INSUFFICIENT_RESOURCES;
-			break;
-		}
-		RtlZeroMemory((void*)cpu.io_bitmap_a, VMX_RGN_BLOCKSIZE);
-		cpu.io_bitmap_a_physical = MmGetPhysicalAddress((void*)cpu.io_bitmap_a);
-
-		// allocate I/O bitmap B memory
-		cpu.io_bitmap_b = (UCHAR*)MmAllocateNonCachedMemory(VMX_RGN_BLOCKSIZE);
-		if (NULL == cpu.io_bitmap_b)
-		{
-			log_err "MmAllocateNonCachedMemory( io_bitmap_b )" log_end
-				status = STATUS_INSUFFICIENT_RESOURCES;
-			break;
-		}
-		RtlZeroMemory((void*)cpu.io_bitmap_b, VMX_RGN_BLOCKSIZE);
-		cpu.io_bitmap_b_physical = MmGetPhysicalAddress((void*)cpu.io_bitmap_b);
-
 		//	Allocate stack for the VM Exit Handler.
 		cpu.fake_stack = (UCHAR*)ExAllocatePoolWithTag(NonPagedPool, FAKE_STACK_SIZE, FAKE_STACK_TAG);
 		if (cpu.fake_stack == NULL)
@@ -2631,18 +2463,6 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 			cpu.vmcs_region_physical
 			log_end
 
-			log_info
-			"io_bitmap_a  [v] = 0x%p, io_bitmap_a  [p] = 0x%p",
-			cpu.io_bitmap_a,
-			cpu.io_bitmap_a_physical
-			log_end
-
-			log_info
-			"io_bitmap_b  [v] = 0x%p, io_bitmap_b  [p] = 0x%p",
-			cpu.io_bitmap_b,
-			cpu.io_bitmap_b_physical
-			log_end
-
 			log_info "fake stack = 0x%p", cpu.fake_stack log_end
 	}
 
@@ -2670,18 +2490,6 @@ void free_vcpu(IN OUT VCPU& cpu)
 	{
 		MmFreeNonCachedMemory(cpu.vmcs_region, VMCS_RGN_SIZE);
 		cpu.vmcs_region = NULL;
-	}
-
-	if (NULL != cpu.io_bitmap_a)
-	{
-		MmFreeNonCachedMemory(cpu.io_bitmap_a, VMX_RGN_BLOCKSIZE);
-		cpu.io_bitmap_a = NULL;
-	}
-
-	if (NULL != cpu.io_bitmap_b)
-	{
-		MmFreeNonCachedMemory(cpu.io_bitmap_b, VMX_RGN_BLOCKSIZE);
-		cpu.io_bitmap_b = NULL;
 	}
 
 	if (NULL != cpu.fake_stack)
