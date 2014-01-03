@@ -60,6 +60,43 @@ MISC_DATA					misc_data = { 0 };
 PVOID						GuestReturn = NULL;
 ULONG						GuestStack = 0;
 
+MTRR_RANGE ranges[MAX_SUPPORTED_MTRR_RANGE];
+MTRR_FIXED_RANGE fixed_ranges[MAX_SUPPORTED_MTRR_FIXED_RANGE];
+
+unsigned char EPTGetMemoryType(unsigned __int32 address)
+{
+  unsigned char type = 0, index;
+  if(address < 0x100000) { /* Check in fixed ranges */
+    if(address < 0x80000) { /* 00000000:00080000 */
+      type = (fixed_ranges[0].types & (0xff << ((address >> 16) * 8))) >> ((address >> 16) * 8);
+    }
+    else if (address < 0xa0000){
+      address -= 0x80000;
+      type = (fixed_ranges[1].types & (0xff << ((address >> 14) * 8))) >> ((address >> 14) * 8);
+    }
+    else if (address < 0xc0000) {
+      address -= 0xa0000;
+      type = (fixed_ranges[2].types & (0xff << ((address >> 14) * 8))) >> ((address >> 14) * 8);
+    }
+    else {
+      index = ((address - 0xc0000) >> 15) + 3;
+      address &= 0x7fff;
+      type = (fixed_ranges[index].types & (0xff << ((address >> 12) * 8))) >> ((address >> 12) * 8);
+    }
+  }
+  else {
+    index = 0;
+    while (index < MAX_SUPPORTED_MTRR_RANGE) {
+      if(ranges[index].base <= address && (ranges[index].base+ranges[index].size) > address) {
+        return ranges[index].type;
+                        }
+      index++;
+    }
+    type = 6;
+  }
+  return type;
+}
+
 
 
 /**
@@ -1414,13 +1451,16 @@ __declspec(naked) VOID StartVMX()
 
 	//Log("Setting EPTP Full")
 	//temp64 = _vcpu.ept_physical.QuadPart | (0x3 << 0x3) | (6);
-	temp32 = (ULONG)_vcpu.ept_physical.HighPart;
-	WriteVMCS(0x201b, temp32);
 	temp32 = (ULONG)_vcpu.ept_physical.LowPart;
 	temp32 = temp32 | (0x3 << 0x3)/*walk length 4*/ | (6) /*mem type WB*/;
 
 	Log("EPTP Low Addresssssssssssssssssssssssssssss", temp32);
 	WriteVMCS(0x201a, temp32);
+
+	temp32 = (ULONG)_vcpu.ept_physical.HighPart;
+	WriteVMCS(0x201b, temp32);
+
+
 
 	//WriteVMCS(0x280b, _vcpu.ept_pdpte_physical.HighPart);
 	//WriteVMCS(0x280a, _vcpu.ept_pdpte_physical.LowPart);
@@ -2010,6 +2050,23 @@ __declspec(naked) VOID VMMEntryPoint()
 				MOV		GuestEFLAGS, EBX
 		}
 		Log("PDPTE0", GuestEFLAGS);
+
+		__asm{
+			mov eax, 0x201a
+				_emit 0x0f
+				_emit 0x78
+				_emit 0xc3
+				mov GuestEFLAGS, ebx
+		}
+		Log("0x201a", GuestEFLAGS);
+		__asm{
+			mov eax, 0x201b
+				_emit 0x0f
+				_emit 0x78
+				_emit 0xc3
+				mov GuestEFLAGS, ebx
+		}
+		Log("0x201b", GuestEFLAGS);
 
 		print_guest_register();
 
@@ -2777,6 +2834,60 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 		RtlZeroMemory((void*)cpu.io_bitmap_b, VMX_RGN_BLOCKSIZE);
 		cpu.io_bitmap_b_physical = MmGetPhysicalAddress((void*)cpu.io_bitmap_b);
 
+		/* 
+			investigate MTRR register
+		*/
+		RtlZeroMemory(ranges, 0, MAX_SUPPORTED_MTRR_RANGE*sizeof(MTRR_RANGE));
+		RtlZeroMemory(fixed_ranges, 0, MAX_SUPPORTED_MTRR_RANGE*sizeof(MTRR_FIXED_RANGE));
+
+		ReadMSR(0xfe);
+		int count = ((((unsigned long long) msr.Hi) << 32) | msr.Lo) & 0xff;
+		int i;
+		for(i = 0; i < count; i++) {
+			MSR base, mask;
+			ReadMSR( 0x200 + (i<<1));//, &base);
+			base = msr;
+			ReadMSR( 0x201 + (i<<1));//, &mask);
+			mask = msr;
+			if(i >= MAX_SUPPORTED_MTRR_RANGE) {
+				__asm int 3
+			}
+			if(mask.Lo & (1<<11) ) {
+				ranges[i].base = base.Lo & 0xfffff000;
+				ranges[i].size = (~(mask.Lo & 0xfffff000)) & 0xfffff000;
+				ranges[i].type = (unsigned char) (base.Lo & 0xff);
+			}
+		}
+
+		i = 0;
+		ReadMSR(0x250 );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x258 );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x259 );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x268 );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x269 );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x26a );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x26b );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x26c );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x26d );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x26e );
+		fixed_ranges[i++].types = msr.Lo;
+		ReadMSR(0x26f );
+		fixed_ranges[i++].types = msr.Lo;
+	
+
+		/*
+			END
+		*/
+
 		/*
 		Allocate EPT Memory
 		*/
@@ -2817,7 +2928,7 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 			cpu.ept_pd->a[i].u = new_addr.QuadPart | 0x7;
 			for (int k = 0; k < 512; k++)
 			{
-				eptpt->a[k].u = m | 0x7 | (3 << 3) /*mem type WB*/;
+				eptpt->a[k].u = m | 0x7 | ((EPTGetMemoryType(m)) << 3) /*mem type WB*/;
 				m += 4096;
 			}
 		}

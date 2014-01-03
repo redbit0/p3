@@ -4,6 +4,25 @@
 /** @name MSR_IA32_VMX_EPT_VPID_CAPS; EPT capabilities MSR
 * @{
 */
+
+typedef struct _MTRR_FIXED_RANGE {
+  __int32 types;
+} MTRR_FIXED_RANGE, *PMTRR_FIXED_RANGE;
+
+typedef struct _MTRR_RANGE {
+  __int32 base;
+  __int64 size;
+  unsigned char type;
+  
+} MTRR_RANGE, *PMTRR_RANGE;
+
+#define MAX_SUPPORTED_MTRR_RANGE 32
+#define MAX_SUPPORTED_MTRR_FIXED_RANGE 12
+
+
+
+
+
 #define RT_BIT_64(bit)                          ( UINT64_C(1) << (bit) )
 
 #define IA32_VMX_EPT_VPID_CAP					0x48c
