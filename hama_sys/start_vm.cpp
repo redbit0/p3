@@ -2085,7 +2085,9 @@ __declspec(naked) VOID VMMEntryPoint()
 
 	if (ExitReason == 48){
 		Log("VMX_EXIT_VIOLATION", 0xdeadbeef);
+		print_guest_register();
 		__asm{
+			int 3
 			popad
 				jmp Resume
 		}
@@ -2093,7 +2095,9 @@ __declspec(naked) VOID VMMEntryPoint()
 
 	if (ExitReason == 49){
 		Log("VMX_EXIT_MISCONFIG", 0xdeadbeef);
+		print_guest_register();
 		__asm{
+			int 3
 			popad
 				jmp Resume
 		}
@@ -2900,9 +2904,11 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 		cpu.ept_pdpte_physical = MmGetPhysicalAddress((void*)cpu.ept_pdpte);
 		RtlZeroMemory((void*)cpu.ept_pdpte, sizeof(EPTPDPT));
 
-		cpu.ept_pd = (PEPTPD)MmAllocateNonCachedMemory(sizeof(EPTPD));
-		cpu.ept_pd_physical = MmGetPhysicalAddress((void*)cpu.ept_pd);
-		RtlZeroMemory((void*)cpu.ept_pd, sizeof(EPTPD));	
+		for( int i = 0 ; i < 4; i ++){
+			cpu.ept_pd[i] = (PEPTPD)MmAllocateNonCachedMemory(sizeof(EPTPD));
+			cpu.ept_pd_physical[i] = MmGetPhysicalAddress((void*)cpu.ept_pd[i]);
+			RtlZeroMemory((void*)cpu.ept_pd[i], sizeof(EPTPD));	
+		}
 
 		Log("EPT Address LowPart", cpu.ept_physical.LowPart);
 		Log("EPT Address HighPart", cpu.ept_physical.HighPart);
@@ -2914,22 +2920,24 @@ NTSTATUS allocate_vcpu(OUT VCPU& cpu)
 		//cpu.ept->a[1].u = cpu.ept_pdpte_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
 		//cpu.ept->a[2].u = cpu.ept_pdpte_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
 		//cpu.ept->a[3].u = cpu.ept_pdpte_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
-
-		cpu.ept_pdpte->a[0].u = cpu.ept_pd_physical.QuadPart | 0x7; /* READ WRITE EXECUTE */
-
+		
 		ULONGLONG m = 0;
-		for (int i = 0; i < 512; i++)
-		{
-			PEPTPT eptpt = (PEPTPT) MmAllocateNonCachedMemory(sizeof(EPTPT));
-			RtlZeroMemory((void*)eptpt, sizeof(EPTPT));
-			PHYSICAL_ADDRESS new_addr = MmGetPhysicalAddress((void*)eptpt);
-			//cpu.ept_pd->a[i].u = m | 0x7 | (3 << 3) /*mem type WB*/| (1 << 7) /* mem mapping 2m */ | (1 << 6)/* ignore pat mem type */;
-			// not useing 2M but 4K
-			cpu.ept_pd->a[i].u = new_addr.QuadPart | 0x7;
-			for (int k = 0; k < 512; k++)
+		for(int o = 0 ; o < 4; o++ ){
+			cpu.ept_pdpte->a[o].u = cpu.ept_pd_physical[o].QuadPart | 0x7; /* READ WRITE EXECUTE */
+
+			for (int i = 0; i < 512; i++)
 			{
-				eptpt->a[k].u = m | 0x7 | ((EPTGetMemoryType(m)) << 3) /*mem type WB*/;
-				m += 4096;
+				PEPTPT eptpt = (PEPTPT) MmAllocateNonCachedMemory(sizeof(EPTPT));
+				RtlZeroMemory((void*)eptpt, sizeof(EPTPT));
+				PHYSICAL_ADDRESS new_addr = MmGetPhysicalAddress((void*)eptpt);
+				//cpu.ept_pd->a[i].u = m | 0x7 | (3 << 3) /*mem type WB*/| (1 << 7) /* mem mapping 2m */ | (1 << 6)/* ignore pat mem type */;
+				// not useing 2M but 4K
+				cpu.ept_pd[o]->a[i].u = new_addr.QuadPart | 0x7;
+				for (int k = 0; k < 512; k++)
+				{
+					eptpt->a[k].u = m  | ((EPTGetMemoryType(m)) << 3) | 0x7 /*mem type WB*/;
+					m += 4096;
+				}
 			}
 		}
 		Log("Allocate Last Mem", m);

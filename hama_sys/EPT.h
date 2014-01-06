@@ -10,8 +10,8 @@ typedef struct _MTRR_FIXED_RANGE {
 } MTRR_FIXED_RANGE, *PMTRR_FIXED_RANGE;
 
 typedef struct _MTRR_RANGE {
-  __int32 base;
-  __int64 size;
+  unsigned __int32 base;
+  unsigned __int64 size;
   unsigned char type;
   
 } MTRR_RANGE, *PMTRR_RANGE;

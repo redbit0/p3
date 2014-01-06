@@ -123,8 +123,8 @@ typedef struct _VCPU
 	PHYSICAL_ADDRESS		ept_physical;
 	PEPTPDPT				ept_pdpte;
 	PHYSICAL_ADDRESS		ept_pdpte_physical;
-	PEPTPD					ept_pd;
-	PHYSICAL_ADDRESS		ept_pd_physical;
+	PEPTPD					ept_pd[4];
+	PHYSICAL_ADDRESS		ept_pd_physical[4];
 
 	UCHAR*					fake_stack;
 
